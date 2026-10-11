@@ -36,6 +36,7 @@ get_schedule:
             - "water_heater"
             - "circulation_pump"
             - "boiler_work"
+            - "thermostat_1"
     weekdays:
       example: "monday"
       required: true
@@ -66,6 +67,7 @@ set_schedule:
             - "water_heater"
             - "circulation_pump"
             - "boiler_work"
+            - "thermostat_1"
     weekdays:
       example: "monday"
       required: true
@@ -118,3 +120,34 @@ calibrate_meter:
       required: true
       selector:
         text:
+
+set_schedule_grid:
+  name: Set schedule grid
+  description: Sets the complete weekly schedule in one operation.
+  fields:
+    device_id:
+      name: Device
+      description: Device to set schedule for.
+      required: true
+      selector:
+        device:
+    type:
+      name: Type
+      description: Type of the schedule.
+      required: true
+      selector:
+        select:
+          options:
+            - heating
+            - water_heater
+            - circulation_pump
+            - boiler_work
+            - thermostat_1
+    schedule:
+      name: Schedule
+      description: Complete seven-day schedule with 48 half-hour slots per day.
+      required: true
+      selector:
+        object:
+
+# set_schedule_grid validates the complete payload before commit and rolls back in-memory mutations on failure.

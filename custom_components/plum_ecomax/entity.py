@@ -32,10 +32,11 @@ from .const import (
     CONNECTION_TYPE_TCP,
     DOMAIN,
     LOGICAL_DEVICES,
-    MANUFACTURER,
     DeviceType,
     ModuleType,
 )
+
+MANUFACTURER: Final = "Plum Sp. z o.o."
 
 ALL: Final = "all"
 
@@ -139,8 +140,8 @@ def async_get_custom_entities[DescriptorT: EcomaxEntityDescription](
     if not entities or target_platform not in entities:
         return
 
-    index = 0
     for entity in entities[target_platform].values():
+        index = 0
         entity_source = entity[CONF_SOURCE_DEVICE]
         if entity_source.startswith(LOGICAL_DEVICES):
             entity_source, index = entity[CONF_SOURCE_DEVICE].split("_", 1)
@@ -149,7 +150,7 @@ def async_get_custom_entities[DescriptorT: EcomaxEntityDescription](
             description = async_make_description_for_custom_entity(
                 description_factory, entity
             )
-            yield description if index == 0 else (description, int(index))
+            yield description, int(index)
 
 
 class EcomaxEntity(Entity):
@@ -161,6 +162,7 @@ class EcomaxEntity(Entity):
     _attr_should_poll = False
     connection: EcomaxConnection
     entity_description: EcomaxEntityDescription
+    _update_handler: Callable[[Any], Any] | None = None
 
     def __init__(
         self, connection: EcomaxConnection, description: EcomaxEntityDescription
@@ -173,6 +175,7 @@ class EcomaxEntity(Entity):
         """Subscribe to events."""
         description = self.entity_description
         handler = description.filter_fn(self.async_update)
+        self._update_handler = handler
 
         async def _async_set_available(value: Any = None) -> None:
             """Mark entity as available."""
@@ -189,7 +192,12 @@ class EcomaxEntity(Entity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Unsubscribe from events."""
-        self.device.unsubscribe(self.entity_description.key, self.async_update)
+        if self._update_handler is not None:
+            self.device.unsubscribe(
+                self.entity_description.key,
+                self._update_handler,
+            )
+            self._update_handler = None
 
     @property
     @override
@@ -296,7 +304,7 @@ class ThermostatEntity(EcomaxEntity):
             sw_version=self.connection.software[ModuleType.ECOSTER],
             via_device_id=dr.async_get_device_id_by_identifier(
                 self.hass,
-                identifier=(DOMAIN, self.connection.uid),
+                (DOMAIN, self.connection.uid),
                 config_entry_id=self.connection.entry.entry_id,
             ),
         )
@@ -344,7 +352,7 @@ class MixerEntity(EcomaxEntity):
             manufacturer=MANUFACTURER,
             via_device_id=dr.async_get_device_id_by_identifier(
                 self.hass,
-                identifier=(DOMAIN, self.connection.uid),
+                (DOMAIN, self.connection.uid),
                 config_entry_id=self.connection.entry.entry_id,
             ),
         )
@@ -362,6 +370,7 @@ class RegdataEntity(EcomaxEntity):
     """Represents a regulator data entity."""
 
     _regdata_key: int
+    _regdata_handler: Callable[[Any], Any] | None = None
 
     def __init__(
         self, connection: EcomaxConnection, description: EcomaxEntityDescription
@@ -374,6 +383,7 @@ class RegdataEntity(EcomaxEntity):
         """Subscribe to regdata event."""
         description = self.entity_description
         handler = description.filter_fn(self.async_update)
+        self._regdata_handler = handler
 
         async def async_set_available(regdata: dict[int, Any]) -> None:
             """Mark entity as available."""
@@ -389,7 +399,12 @@ class RegdataEntity(EcomaxEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Unsubscribe from regdata event."""
-        self.device.unsubscribe(ATTR_REGDATA, self.async_update)
+        if self._regdata_handler is not None:
+            self.device.unsubscribe(
+                ATTR_REGDATA,
+                self._regdata_handler,
+            )
+            self._regdata_handler = None
 
     @property
     def entity_registry_enabled_default(self) -> bool:

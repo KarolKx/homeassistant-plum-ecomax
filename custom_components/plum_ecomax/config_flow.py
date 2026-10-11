@@ -933,9 +933,7 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             if k not in existing_keys or k == selected
         }
 
-    def _entity_source_candidates(
-        self, selected: str
-    ) -> dict[str, Any] | dict[int, Any]:
+    def _entity_source_candidates(self, selected: str) -> dict[str | int, Any]:
         """Return custom entity source candidates."""
         entity_keys = _entity_keys_for_config_entry(self.hass, self.config_entry)
 

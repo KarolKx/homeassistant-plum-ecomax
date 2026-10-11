@@ -386,7 +386,7 @@ def async_setup_custom_ecomax_sensors(
     description_partial = partial(EcomaxSensorEntityDescription, value_fn=lambda x: x)
     return [
         EcomaxSensor(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.SENSOR,
             source_device=DeviceType.ECOMAX,
             config_entry=config_entry,
@@ -603,7 +603,7 @@ def async_setup_custom_regdata_sensors(
     description_partial = partial(RegdataSensorEntityDescription, value_fn=lambda x: x)
     return [
         RegdataSensor(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.SENSOR,
             source_device="regdata",
             config_entry=config_entry,
@@ -667,10 +667,14 @@ async def async_setup_entry(
     entities += async_setup_custom_ecomax_sensors(connection, entry)
 
     # Add custom regulator data (device-specific) sensors.
-    if (
-        regdata_entities := async_setup_custom_regdata_sensors(connection, entry)
-    ) and await connection.async_setup_regdata():
+    # Do not block platform setup on the regdata schema request.
+    if regdata_entities := async_setup_custom_regdata_sensors(connection, entry):
         entities += regdata_entities
+        entry.async_create_background_task(
+            hass,
+            connection.async_setup_regdata(),
+            name="setup_regdata",
+        )
 
     # Add mixer/circuit sensors.
     if connection.has_mixers and await connection.async_setup_mixers():

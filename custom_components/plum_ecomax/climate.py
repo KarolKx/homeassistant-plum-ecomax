@@ -94,6 +94,7 @@ class EcomaxClimate(ThermostatEntity, ClimateEntity):
     _attr_target_temperature_step = TEMPERATURE_STEP
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _callbacks: dict[str, Filter]
+    _pending_target_temperature: float | None = None
     entity_description: EcomaxClimateEntityDescription
 
     def __init__(
@@ -120,6 +121,11 @@ class EcomaxClimate(ThermostatEntity, ClimateEntity):
         """Set new target temperature."""
         temperature = round(kwargs[ATTR_TEMPERATURE], 1)
         target_temperature_name = cast(str, self.target_temperature_name)
+
+        # Keep the value requested by HA until the device reports the
+        # same value. This prevents a stale device event from restoring
+        # the previous target temperature in the HA entity.
+        self._pending_target_temperature = temperature
         self.device.set_nowait(target_temperature_name, temperature)
         self._attr_target_temperature = temperature
         self.async_write_ha_state()
@@ -139,6 +145,19 @@ class EcomaxClimate(ThermostatEntity, ClimateEntity):
 
     async def async_update_target_temperature(self, value: float) -> None:
         """Update target temperature."""
+        value = round(float(value), 1)
+
+        if (
+            self._pending_target_temperature is not None
+            and value != self._pending_target_temperature
+        ):
+            # Ignore a stale device value while the requested value is
+            # still being propagated.
+            return
+
+        if self._pending_target_temperature == value:
+            self._pending_target_temperature = None
+
         self._attr_target_temperature = value
         await self._async_update_target_temperature_attributes(value)
         self.async_write_ha_state()
@@ -196,9 +215,17 @@ class EcomaxClimate(ThermostatEntity, ClimateEntity):
             # Target temperature parameter name is unchanged.
             return
 
-        target_temperature_parameter: ThermostatNumber = await self.device.get(
-            target_temperature_name
+        target_temperature_parameter: ThermostatNumber | None = (
+            self.device.get_nowait(target_temperature_name, None)
         )
+        if target_temperature_parameter is None:
+            _LOGGER.debug(
+                "Thermostat %s: target temperature parameter %s is not available yet",
+                self.index + 1,
+                target_temperature_name,
+            )
+            return
+
         self._attr_target_temperature_name = target_temperature_name
         self._attr_max_temp = float(target_temperature_parameter.max_value)
         self._attr_min_temp = float(target_temperature_parameter.min_value)
@@ -208,14 +235,21 @@ class EcomaxClimate(ThermostatEntity, ClimateEntity):
     ) -> str:
         """Get current preset for the schedule mode."""
         if target_temp is None:
-            target_temp = await self.device.get("target_temp")
+            target_temp = self.device.get_nowait("target_temp", None)
 
-        comfort_temp: ThermostatNumber = await self.device.get(
-            HA_PRESET_TO_EM_TEMP[PRESET_COMFORT]
+        comfort_temp: ThermostatNumber | None = self.device.get_nowait(
+            HA_PRESET_TO_EM_TEMP[PRESET_COMFORT], None
         )
-        eco_temp: ThermostatNumber = await self.device.get(
-            HA_PRESET_TO_EM_TEMP[PRESET_ECO]
+        eco_temp: ThermostatNumber | None = self.device.get_nowait(
+            HA_PRESET_TO_EM_TEMP[PRESET_ECO], None
         )
+
+        if target_temp is None or comfort_temp is None or eco_temp is None:
+            _LOGGER.debug(
+                "Thermostat %s: schedule preset parameters are not available yet",
+                self.index + 1,
+            )
+            return PRESET_UNKNOWN
 
         schedule_preset = PRESET_UNKNOWN
         if target_temp == comfort_temp.value and target_temp != eco_temp.value:

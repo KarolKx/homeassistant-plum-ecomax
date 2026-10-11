@@ -136,7 +136,7 @@ def async_setup_custom_ecomax_numbers(
     """Set up the custom ecoMAX sensors."""
     return [
         EcomaxNumber(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.NUMBER,
             source_device=DeviceType.ECOMAX,
             config_entry=config_entry,

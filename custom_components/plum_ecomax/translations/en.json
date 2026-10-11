@@ -349,17 +349,14 @@
     "connection_timeout": {
       "message": "Timed out while trying to connect ({connection})"
     },
-    "device_disconnected": {
-      "message": "The selected device was disconnected ({device})"
-    },
     "device_not_found": {
       "message": "Requested device not found ({device})"
     },
     "device_not_ready": {
       "message": "Device not ready ({device})"
     },
-    "entity_not_found": {
-      "message": "The selected entity \"{entity}\" was not found on the device ({device})"
+    "property_not_writable": {
+      "message": "Cannot change read-only \"{property}\" property"
     },
     "invalid_parameter_value": {
       "message": "Invalid value \"{value}\" for the \"{parameter}\" parameter"
@@ -373,37 +370,41 @@
     "parameter_not_found_with_suggestion": {
       "message": "Requested parameter \"{parameter}\" not found, did you mean \"{suggestion}\"? ({device})"
     },
-    "property_not_writable": {
-      "message": "Cannot change read-only \"{property}\" property"
-    },
     "schedule_not_found": {
       "message": "Requested schedule \"{schedule}\" not found ({device})"
     },
     "set_parameter_timeout": {
       "message": "Request to set a \"{parameter}\" parameter timed out"
     },
+    "device_disconnected": {
+      "message": "The selected device was disconnected ({device})"
+    },
     "unsupported_device": {
       "message": "The selected device is invalid or not supported ({device})"
+    },
+    "entity_not_found": {
+      "message": "The selected entity \"{entity}\" was not found on the device ({device})"
     }
   },
   "options": {
-    "abort": {
-      "entry_not_ready": "Config entry not ready, please wait and try again.",
-      "no_entities_to_add": "No entities to add, all available entities have been added already.",
-      "no_entities_to_edit_or_remove": "No entities to edit or remove, you'll need to add some first."
-    },
     "step": {
       "add_entity": {
+        "title": "Select a source device",
         "data": {
           "source_device": "Source device"
-        },
-        "title": "Select a source device"
+        }
       },
       "edit_entity": {
+        "title": "Select an entity to edit",
         "data": {
           "entity_id": "Entity"
-        },
-        "title": "Select an entity to edit"
+        }
+      },
+      "remove_entity": {
+        "title": "Select an entity to remove",
+        "data": {
+          "entity_id": "Entity"
+        }
       },
       "entity_details": {
         "data": {
@@ -430,16 +431,15 @@
         "menu_options": {
           "add_entity": "Add a new entity",
           "edit_entity": "Edit an entity",
-          "rediscover_devices": "Rediscover connected devices",
-          "remove_entity": "Remove an entity"
+          "remove_entity": "Remove an entity",
+          "rediscover_devices": "Rediscover connected devices"
         }
-      },
-      "remove_entity": {
-        "data": {
-          "entity_id": "Entity"
-        },
-        "title": "Select an entity to remove"
       }
+    },
+    "abort": {
+      "no_entities_to_edit_or_remove": "No entities to edit or remove, you'll need to add some first.",
+      "no_entities_to_add": "No entities to add, all available entities have been added already.",
+      "entry_not_ready": "Config entry not ready, please wait and try again."
     }
   },
   "selector": {
@@ -478,8 +478,8 @@
       "options": {
         "absolute_humidity": "Absolute humidity",
         "apparent_power": "Apparent power",
-        "aqi": "Air quality index",
         "area": "Area",
+        "aqi": "Air quality index",
         "atmospheric_pressure": "Atmospheric pressure",
         "battery": "Battery",
         "blood_glucose_concentration": "Blood glucose concentration",
@@ -514,8 +514,8 @@
         "precipitation": "Precipitation",
         "precipitation_intensity": "Precipitation intensity",
         "pressure": "Pressure",
-        "reactive_energy": "Reactive energy",
         "reactive_power": "Reactive power",
+        "reactive_energy": "Reactive energy",
         "signal_strength": "Signal strength",
         "sound_pressure": "Sound pressure",
         "speed": "Speed",
@@ -529,8 +529,8 @@
         "volume_storage": "Stored volume",
         "water": "Water",
         "weight": "Weight",
-        "wind_direction": "Wind direction",
-        "wind_speed": "Wind speed"
+        "wind_speed": "Wind speed",
+        "wind_direction": "Wind direction"
       }
     },
     "number_mode": {
@@ -553,18 +553,19 @@
     },
     "schedule_type": {
       "options": {
-        "boiler_work": "Boiler",
-        "circulation_pump": "Circulation pump",
         "heating": "Heating",
-        "water_heater": "Water heater"
+        "water_heater": "Water heater",
+        "circulation_pump": "Circulation pump",
+        "boiler_work": "Boiler",
+        "thermostat_1": "Room thermostat"
       }
     },
     "sensor_device_class": {
       "options": {
         "absolute_humidity": "Absolute humidity",
         "apparent_power": "Apparent power",
-        "aqi": "Air quality index",
         "area": "Area",
+        "aqi": "Air quality index",
         "atmospheric_pressure": "Atmospheric pressure",
         "battery": "Battery",
         "blood_glucose_concentration": "Blood glucose concentration",
@@ -600,8 +601,8 @@
         "precipitation": "Precipitation",
         "precipitation_intensity": "Precipitation intensity",
         "pressure": "Pressure",
-        "reactive_energy": "Reactive energy",
         "reactive_power": "Reactive power",
+        "reactive_energy": "Reactive energy",
         "signal_strength": "Signal strength",
         "sound_pressure": "Sound pressure",
         "speed": "Speed",
@@ -616,8 +617,8 @@
         "volume_storage": "Stored volume",
         "water": "Water",
         "weight": "Weight",
-        "wind_direction": "Wind direction",
-        "wind_speed": "Wind speed"
+        "wind_speed": "Wind speed",
+        "wind_direction": "Wind direction"
       }
     },
     "sensor_state_class": {
@@ -717,7 +718,7 @@
           "description": "Device to set schedule for.",
           "name": "Device"
         },
-        "end_time": {
+        "end": {
           "description": "Time at which scheduled state will be cleared.",
           "name": "End time"
         },
@@ -725,7 +726,7 @@
           "description": "Preset at scheduled time.",
           "name": "Preset"
         },
-        "start_time": {
+        "start": {
           "description": "Time at which scheduled state will be set.",
           "name": "Start time"
         },
@@ -739,18 +740,36 @@
         }
       },
       "name": "Set schedule"
+    },
+    "set_schedule_grid": {
+      "name": "Set schedule grid",
+      "description": "Sets the complete weekly schedule in one operation.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Device to set schedule for."
+        },
+        "type": {
+          "name": "Typ",
+          "description": "Type of the schedule."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Complete week: 7 days with 48 half-hour slots each."
+        }
+      }
     }
   },
   "system_health": {
     "info": {
-      "connected_since": "Connected since",
-      "connection_losses": "Connection losses",
-      "custom_entities": "Custom entities",
-      "failed_frames": "Failed frames",
-      "failure_rate": "Failure rate",
       "pyplumio_version": "PyPlumIO version",
       "received_frames": "Received frames",
-      "sent_frames": "Sent frames"
+      "sent_frames": "Sent frames",
+      "failed_frames": "Failed frames",
+      "failure_rate": "Failure rate",
+      "connected_since": "Connected since",
+      "connection_losses": "Connection losses",
+      "custom_entities": "Custom entities"
     }
   }
 }

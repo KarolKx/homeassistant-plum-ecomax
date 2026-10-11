@@ -159,7 +159,7 @@ def async_setup_custom_ecomax_binary_sensors(
     )
     return [
         EcomaxBinarySensor(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.BINARY_SENSOR,
             source_device=DeviceType.ECOMAX,
             config_entry=config_entry,
@@ -269,7 +269,7 @@ def async_setup_custom_regdata_binary_sensors(
     )
     return [
         RegdataBinarySensor(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.BINARY_SENSOR,
             source_device="regdata",
             config_entry=config_entry,

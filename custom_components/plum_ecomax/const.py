@@ -4,7 +4,6 @@ from enum import StrEnum, unique
 from typing import Final
 
 DOMAIN = "plum_ecomax"
-MANUFACTURER: Final = "Plum Sp. z o.o."
 
 # Generic attributes.
 ATTR_ENTITIES: Final = "entities"

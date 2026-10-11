@@ -48,9 +48,7 @@ from .const import (
     DEFAULT_CONNECTION_TYPE,
     DOMAIN,
     EVENT_PLUM_ECOMAX_ALERT,
-    MANUFACTURER,
     DeviceType,
-    ModuleType,
 )
 from .services import async_setup_services
 
@@ -136,23 +134,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: PlumEcomaxConfigEntry) -
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_close_connection)
     )
 
-    # Ensure that ecoMAX controller device exists in config entry.
-    device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        configuration_url=(
-            f"http://{entry.data[CONF_HOST]}"
-            if connection_type == CONNECTION_TYPE_TCP
-            else None
-        ),
-        identifiers={(DOMAIN, connection.uid)},
-        manufacturer=MANUFACTURER,
-        model=connection.model,
-        name=connection.name,
-        serial_number=connection.uid,
-        sw_version=connection.software.get(ModuleType.A),
-    )
-
     async_setup_events(hass, connection)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -166,12 +147,14 @@ def async_setup_events(hass: HomeAssistant, connection: EcomaxConnection) -> boo
 
     async def _async_dispatch_alert_events(alerts: list[Alert]) -> None:
         """Handle ecoMAX alert events."""
-        if (
-            device := device_registry.async_get_device({(DOMAIN, connection.uid)})
-        ) is None:
+        devices = device_registry.async_get_devices(
+            identifiers={(DOMAIN, connection.uid)}
+        )
+        if not devices:
             _LOGGER.error("Device not found. uid: %s", connection.uid)
             return
 
+        device = devices[0]
         for alert in alerts:
             event_data = {
                 ATTR_NAME: connection.name,

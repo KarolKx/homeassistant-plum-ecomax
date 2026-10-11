@@ -131,7 +131,7 @@ def async_setup_custom_ecomax_switches(
     """Set up the custom ecoMAX switches."""
     return [
         EcomaxSwitch(connection, description)
-        for description in async_get_custom_entities(
+        for description, index in async_get_custom_entities(
             platform=Platform.SWITCH,
             source_device=DeviceType.ECOMAX,
             config_entry=config_entry,

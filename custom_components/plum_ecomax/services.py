@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import difflib
 import logging
 from typing import (
@@ -30,11 +31,16 @@ from homeassistant.helpers import (
     device_registry as dr,
     service,
 )
-from pyplumio.const import State, UnitOfMeasurement
+from pyplumio.const import DeviceType, FrameType, State, UnitOfMeasurement
+from pyplumio.frames import Request
 from pyplumio.devices import Device, LogicalDevice
 from pyplumio.parameters import Number, Numeric, Parameter
 from pyplumio.structures.product_info import ProductInfo
-from pyplumio.structures.schedules import Schedule, ScheduleDay
+from pyplumio.structures.schedules import (
+    Schedule,
+    ScheduleDay,
+    collect_schedule_data,
+)
 import voluptuous as vol
 
 from .connection import DEFAULT_TIMEOUT, EcomaxConnection
@@ -47,6 +53,7 @@ ATTR_START: Final = "start"
 ATTR_END: Final = "end"
 ATTR_PRESET: Final = "preset"
 ATTR_SCHEDULES: Final = "schedules"
+ATTR_SCHEDULE: Final = "schedule"
 ATTR_TYPE: Final = "type"
 ATTR_WEEKDAYS: Final = "weekdays"
 
@@ -54,7 +61,13 @@ PRESET_DAY: Final = "day"
 PRESET_NIGHT: Final = "night"
 PRESETS = (PRESET_DAY, PRESET_NIGHT)
 
-SCHEDULES: Final = ("heating", "water_heater", "circulation_pump", "boiler_work")
+SCHEDULES: Final = (
+    "heating",
+    "water_heater",
+    "circulation_pump",
+    "boiler_work",
+    "thermostat_1",
+)
 
 SERVICE_GET_PARAMETER = "get_parameter"
 SERVICE_GET_PARAMETER_SCHEMA = vol.Schema(
@@ -83,6 +96,14 @@ SERVICE_GET_SCHEDULE_SCHEMA = vol.Schema(
 )
 
 SERVICE_SET_SCHEDULE = "set_schedule"
+SERVICE_SET_SCHEDULE_GRID = "set_schedule_grid"
+SERVICE_SET_SCHEDULE_GRID_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): str,
+        vol.Required(ATTR_TYPE): vol.All(str, vol.In(SCHEDULES)),
+        vol.Required(ATTR_SCHEDULE): dict,
+    }
+)
 SERVICE_SET_SCHEDULE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): str,
@@ -103,16 +124,24 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 def async_extract_connection_from_device_entry(
-    hass: HomeAssistant, device_entry: dr.BaseDeviceEntry
+    hass: HomeAssistant, device_entry: dr.DeviceEntry
 ) -> EcomaxConnection:
     """Extract connection instance from device entry."""
-    entry: PlumEcomaxConfigEntry
-    for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-        if entry.entry_id in device_entry.config_entries:
-            return entry.runtime_data.connection
+    identifiers = device_entry.identifiers
+
+    for domain, identifier in identifiers:
+        if domain != DOMAIN:
+            continue
+
+        # Thermostat/mixer identifiers have the connection UID as prefix.
+        connection_uid = identifier.split("-", 1)[0]
+
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            connection = entry.runtime_data.connection
+            if connection.uid == connection_uid:
+                return connection
 
     raise ValueError(f"No connection instance found for device id: {device_entry.id}")
-
 
 @callback
 def async_get_logical_device(
@@ -135,7 +164,7 @@ def async_get_logical_device(
 
 @callback
 def async_get_device_from_entry(
-    hass: HomeAssistant, device_entry: dr.BaseDeviceEntry
+    hass: HomeAssistant, device_entry: dr.DeviceEntry
 ) -> Device:
     """Get device instance from device entry."""
     connection = async_extract_connection_from_device_entry(hass, device_entry)
@@ -364,6 +393,37 @@ class ScheduleResponse(TypedDict):
     product: NotRequired[ProductId]
 
 
+async def async_commit_schedule(schedule: Schedule) -> None:
+    """Commit a schedule and wait for the controller response.
+
+    ecoSTER thermostat schedules use a dedicated SET frame. PyPlumIO's
+    Schedule.commit() queues that frame but does not wait for its response,
+    so a following read can race the write. For thermostat schedules, send
+    the same frame here and wait until the returned schedule is processed.
+    """
+    if not schedule.name.startswith("thermostat_"):
+        await schedule.commit()
+        return
+
+    device = schedule.device
+    event = device.create_event(ATTR_SCHEDULES)
+    event.clear()
+
+    request = await Request.create(
+        FrameType.REQUEST_SET_ECOSTER_SCHEDULE,
+        recipient=DeviceType.ECOSTER,
+        data=collect_schedule_data(schedule.name, device),
+    )
+    device.queue_send(request)
+
+    try:
+        await asyncio.wait_for(event.wait(), timeout=DEFAULT_TIMEOUT)
+    except TimeoutError as err:
+        raise HomeAssistantError(
+            "ecoSTER nie potwierdził zapisu harmonogramu termostatu."
+        ) from err
+
+
 @callback
 def async_validate_schedule(device: Device, name: str) -> Schedule:
     """Validate the device parameter."""
@@ -412,6 +472,8 @@ def async_setup_get_schedule_service(hass: HomeAssistant) -> None:
         schedule_type: str = service_call.data[ATTR_TYPE]
         weekdays: list[str] = service_call.data[ATTR_WEEKDAYS]
         device = async_extract_device_from_service(hass, service_call)
+        if schedule_type.startswith("thermostat_"):
+            await device.request_ecoster_schedules(retries=2, timeout=DEFAULT_TIMEOUT)
         schedule = async_validate_schedule(device, schedule_type)
         return cast(
             ServiceResponse, async_make_schedule_response(device, schedule, weekdays)
@@ -424,6 +486,66 @@ def async_setup_get_schedule_service(hass: HomeAssistant) -> None:
         schema=SERVICE_GET_SCHEDULE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+
+async def async_set_device_schedule_grid(device: Device, service_call: ServiceCall) -> None:
+    """Set a complete weekly schedule in one device request."""
+    schedule_type = service_call.data[ATTR_TYPE]
+    payload = service_call.data[ATTR_SCHEDULE]
+    schedule = async_validate_schedule(device, schedule_type)
+
+    # Validate the complete payload before mutating the live Schedule object.
+    expected_weekdays = set(WEEKDAYS)
+    if set(payload) != expected_weekdays:
+        raise ServiceValidationError(
+            "Schedule must contain exactly all seven weekdays.",
+            translation_domain=DOMAIN,
+            translation_key="invalid_schedule_interval",
+            translation_placeholders={"schedule": schedule_type},
+        )
+
+    for weekday in WEEKDAYS:
+        schedule_day: ScheduleDay = getattr(schedule, weekday)
+        day_payload = payload[weekday]
+        if not isinstance(day_payload, dict) or set(day_payload) != set(schedule_day.schedule):
+            raise ServiceValidationError(
+                f"Schedule day {weekday} must contain all intervals exposed by the controller.",
+                translation_domain=DOMAIN,
+                translation_key="invalid_schedule_interval",
+                translation_placeholders={"schedule": schedule_type},
+            )
+        if any(value not in PRESETS for value in day_payload.values()):
+            raise ServiceValidationError(
+                f"Schedule day {weekday} contains an invalid preset.",
+                translation_domain=DOMAIN,
+                translation_key="invalid_schedule_interval",
+                translation_placeholders={"schedule": schedule_type},
+            )
+
+    # Keep original values so a failed commit does not leave the in-memory
+    # Schedule object partially modified. The controller is only updated by
+    # commit(), but the object may otherwise be observed by HA after failure.
+    original_values = {
+        weekday: {
+            interval: getattr(schedule, weekday).schedule[interval]
+            for interval in payload[weekday]
+        }
+        for weekday in WEEKDAYS
+    }
+
+    try:
+        for weekday in WEEKDAYS:
+            schedule_day: ScheduleDay = getattr(schedule, weekday)
+            for interval, preset in payload[weekday].items():
+                schedule_day[interval] = preset == PRESET_DAY
+
+        await async_commit_schedule(schedule)
+    except Exception:
+        for weekday, day_values in original_values.items():
+            schedule_day: ScheduleDay = getattr(schedule, weekday)
+            for interval, value in day_values.items():
+                schedule_day[interval] = value
+        raise
 
 
 async def async_set_device_schedule(device: Device, service_call: ServiceCall) -> None:
@@ -452,7 +574,7 @@ async def async_set_device_schedule(device: Device, service_call: ServiceCall) -
                 },
             ) from e
 
-    await schedule.commit()
+    await async_commit_schedule(schedule)
 
 
 @callback
@@ -470,6 +592,19 @@ def async_setup_set_schedule_service(hass: HomeAssistant) -> None:
         SERVICE_SET_SCHEDULE,
         _async_set_schedule_service,
         schema=SERVICE_SET_SCHEDULE_SCHEMA,
+    )
+
+    @service.verify_domain_control(DOMAIN)
+    async def _async_set_schedule_grid_service(service_call: ServiceCall) -> None:
+        """Set a complete weekly schedule."""
+        device = async_extract_device_from_service(hass, service_call)
+        await async_set_device_schedule_grid(device, service_call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_SCHEDULE_GRID,
+        _async_set_schedule_grid_service,
+        schema=SERVICE_SET_SCHEDULE_GRID_SCHEMA,
     )
 
 

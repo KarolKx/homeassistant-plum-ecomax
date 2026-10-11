@@ -20,13 +20,14 @@ async def system_health_info(hass: HomeAssistant) -> dict[str, Any]:
     total_frames = (
         statistics.sent_frames + statistics.received_frames + statistics.failed_frames
     )
-    failure_rate = (statistics.failed_frames / total_frames) * 100.0
-    if failure_rate == 0:
+    if total_frames == 0:
         failure_rate_string = "0 %"
-    elif failure_rate < 0.01:
-        failure_rate_string = "<0.01 %"
     else:
-        failure_rate_string = f"{round(failure_rate, 2)} %"
+        failure_rate = (statistics.failed_frames / total_frames) * 100.0
+        if failure_rate < 0.01:
+            failure_rate_string = "<0.01 %"
+        else:
+            failure_rate_string = f"{round(failure_rate, 2)} %"
 
     custom_entities: dict[Platform, dict] = config_entry.options.get(ATTR_ENTITIES, {})
 
